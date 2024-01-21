@@ -5,7 +5,8 @@ import models
 from models import User, Todo
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
-import bcrypt
+
+
 
 app: FastAPI = FastAPI()
 models.Base.metadata.create_all(bind=engine)
@@ -15,7 +16,6 @@ def validate_password_length(value):
     if len(value) < 8:
         raise ValueError("Password must be at least 8 characters")
     return value
-
     
 class TodoBase(BaseModel):
     title: str
@@ -28,7 +28,6 @@ class UserBase(BaseModel):
     password: str
 
     _validate_password_length = validator("password", pre=True, always=True)(validate_password_length)
-
 
 def get_db():
     db = SessionLocal()
@@ -43,6 +42,31 @@ db_dependency = Annotated[Session, Depends(get_db)]
 async def root():
     return {"message": "My Todo App"}
 
+
+@app.post("/user/signup")
+async def sign_up(user: UserBase, db: db_dependency):
+    try:
+        user.password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
+        user = User(**user.model_dump())
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {"message":"user registered successfully!"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    
+@app.get("/user/login")
+async def login(user: UserBase, db: db_dependency):
+    try:
+        user_data: User or None = db.query(User).filter(User.email == user.email).first()
+        if user_data:
+            isCorrectPassword:bool = bcrypt.checkpw(user.password, user_data.password)
+        else:
+            return {"message":"Invalid password"}
+    except Exception as e:
+        return
+
 @app.post("/todo/create")
 async def create_todo(todo: TodoBase, db: db_dependency):
     try:
@@ -55,25 +79,10 @@ async def create_todo(todo: TodoBase, db: db_dependency):
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
-@app.post("/user/create")
-async def create_user(user: UserBase, db: db_dependency):
-    try:
-        user.password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
-        user = User(**user.model_dump())
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return {"message":"user registered successfully!"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-
-@app.post("/todo/{user_id}")
+@app.get("/todo/{user_id}")
 async def get_todos(user_id: str, db: db_dependency):
     try:
         todos = db.query(Todo).filter(Todo.user_id == user_id).first()
-        print(todos)
         return {"todos":todos}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))

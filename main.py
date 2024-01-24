@@ -5,8 +5,7 @@ import models
 from models import User, Todo
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
-
-
+from auth import get_password_hash, verify_password, create_access_token, TokenData, verify_access_token, oauth2_scheme
 
 app: FastAPI = FastAPI()
 models.Base.metadata.create_all(bind=engine)
@@ -38,6 +37,17 @@ def get_db():
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
+def get_current_user(token: str = Depends(oauth2_scheme), db = db_dependency) -> User:
+    credentials_exception: HTTPException = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                                         detail="Could not validate credentials",
+                                                         headers = {
+                                                             "WWW-Authenticate": "Bearer",
+                                                             }
+                                                             )
+    token:TokenData = verify_access_token(token, credentials_exception)
+    user: User = db.query(User).filter(User.id == token.id).first()
+    return user
+
 @app.get("/")
 async def root():
     return {"message": "My Todo App"}
@@ -46,12 +56,16 @@ async def root():
 @app.post("/user/signup")
 async def sign_up(user: UserBase, db: db_dependency):
     try:
-        user.password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
+        userExist = db.query(User).filter(User.email == user.email).first()
+        if userExist is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="User with this email already exists")
+        user.password = get_password_hash(user.password)
         user = User(**user.model_dump())
         db.add(user)
         db.commit()
         db.refresh(user)
-        return {"message":"user registered successfully!"}
+        return {"message":"User registered successfully!", "id":"{user.id}"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
@@ -61,11 +75,15 @@ async def login(user: UserBase, db: db_dependency):
     try:
         user_data: User or None = db.query(User).filter(User.email == user.email).first()
         if user_data:
-            isCorrectPassword:bool = bcrypt.checkpw(user.password, user_data.password)
+            if verify_password(user.password, user_data.password):
+                return create_access_token(data={"id":user_data.id})
+            else:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password.")
         else:
-            return {"message":"Invalid password"}
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Invalid email or password.")
     except Exception as e:
-        return
+        return {"message":str(e)}
 
 @app.post("/todo/create")
 async def create_todo(todo: TodoBase, db: db_dependency):
@@ -79,10 +97,13 @@ async def create_todo(todo: TodoBase, db: db_dependency):
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
-@app.get("/todo/{user_id}")
-async def get_todos(user_id: str, db: db_dependency):
+
+# Returns the todos of the user
+@app.get("/todos/get")
+async def get_todos(user: User = Depends(get_current_user),db = db_dependency):
     try:
-        todos = db.query(Todo).filter(Todo.user_id == user_id).first()
+        todos: list[Todo] = db.query(Todo).filter(Todo.user_id == user.id).first()
+        print(todos)
         return {"todos":todos}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))

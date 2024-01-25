@@ -10,7 +10,6 @@ from fastapi import Depends, HTTPException, status
 load_dotenv()
 
 #  User Auth JWT
-
 SECRET_KEY = os.environ.get("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -28,6 +27,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     id: str
+    exp: datetime
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_content.verify(plain_password, hashed_password)
@@ -37,7 +37,7 @@ def get_password_hash(password) -> str:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire:datetime = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES) 
+    expire: datetime = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES) 
     to_encode.update({"exp": expire})
     encoded_jwt:str = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token":encoded_jwt, "token_type":"bearer"}
@@ -45,11 +45,19 @@ def create_access_token(data: dict) -> str:
 
 def verify_access_token(token: str, credentials_exception: HTTPException) -> TokenData:
     try:
-        payload = jwt.decode(token, SECRET_KEY=SECRET_KEY, algorithms=[ALGORITHM])
-        id: str = payload.get("id")
-        if id is None:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        token_data: TokenData = TokenData(**payload)
+        if token_data.id is None:
             raise credentials_exception
-        token_data:TokenData = TokenData(id=id)
+        # Ensure datetime.utcnow() is aware of the UTC timezone
+        current_time = datetime.utcnow().replace(tzinfo=timezone.utc)
+
+        if token_data.exp is not None and current_time > token_data.exp:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     except JWTError as e:
         print(e)
         raise credentials_exception

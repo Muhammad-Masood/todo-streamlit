@@ -4,6 +4,7 @@ from typing import Annotated
 import models
 from models import User, Todo
 from sqlalchemy.orm import Session
+import ast
 import json
 from database import SessionLocal, engine
 from auth import get_password_hash, verify_password, create_access_token, TokenData, verify_access_token, oauth2_scheme, Token
@@ -21,7 +22,7 @@ class TodoBase(BaseModel):
     title: str
     description: str
     isDone: bool = Field(default=False)
-    user_id: str
+    # user_id: str
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -39,19 +40,26 @@ def get_db():
 db_dependency = Annotated[Session, Depends(get_db)]
 
 # @app.get("/get-cookie")
-def get_cookie(session: str = Cookie(None)) -> str:
-    _session = json.loads(session.replace("'", "\""))
-    return _session
+def get_cookie(request: Request, session: str = Cookie(None)) -> str:
+    auth = request.headers.get("authorization", "")
+    if session is None and auth == '':
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    if session is not None:
+        _session = json.loads(session.replace("'", "\""))
+        return _session.get("access_token", "")
+    else:
+        __session = ast.literal_eval(auth.replace('Bearer ', ''))
+        return __session.get("access_token", "")
 
 # def get_current_user(token: str = Depends(oauth2_scheme), db = db_dependency) -> User:
-def get_current_user(db: db_dependency, access_token: str = Depends(get_cookie)) -> User:
+def get_current_user(db: db_dependency, access_token = Depends(get_cookie)) -> User:
     credentials_exception: HTTPException = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                                          detail="Could not validate credentials",
                                                          headers = {
                                                              "WWW-Authenticate": "Bearer",
                                                              }
                                                              )
-    token:TokenData = verify_access_token(access_token["access_token"], credentials_exception)
+    token:TokenData = verify_access_token(access_token, credentials_exception)
     user: User = db.query(User).filter(User.id == token.id).first()
     return user
 
@@ -83,8 +91,9 @@ async def login(user: UserBase, db: db_dependency, response: Response):
         user_data: User or None = db.query(User).filter(User.email == user.email).first()
         if user_data:
             if verify_password(user.password, user_data.password):
-                response.set_cookie(key='session', value=create_access_token({"id":user_data.id}), httponly=True, samesite="none", secure=True)
-                return {"message":"User logged in successfully!"}
+                session: Token = create_access_token({"id":user_data.id})
+                response.set_cookie(key='session', value=session, httponly=True, samesite="none", secure=True)
+                return {"message":"User logged in successfully!", "session":session}
             else:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password.")
         else:
@@ -94,9 +103,11 @@ async def login(user: UserBase, db: db_dependency, response: Response):
         return {"message":str(e)}
 
 @app.post("/todo/create")
-async def create_todo(todo: TodoBase, db: db_dependency):
+async def create_todo(todo: TodoBase, db: db_dependency, user: User = Depends(get_current_user)):
     try:
-        todo = Todo(**todo.model_dump())
+        todo_data = todo.model_dump()
+        todo_data["user_id"] = user.id
+        todo = Todo(**todo_data)
         db.add(todo)
         db.commit()
         db.refresh(todo)
@@ -110,16 +121,17 @@ async def create_todo(todo: TodoBase, db: db_dependency):
 @app.get("/todos/get")
 async def get_todos(db: db_dependency, user: User = Depends(get_current_user)):
     try:
-        todos: list[Todo] = db.query(Todo).filter(Todo.user_id == user.id).first()
+        todos:list[Todo] = db.query(Todo).filter(Todo.user_id == user.id).all()
+        print(todos)
         if todos:
-            return {todos}
+            return {"todos": [todo for todo in todos]}
         else:
             return {"message":"No todos found"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 @app.patch("/todo/update/{todo_id}")
-async def update_todo(todo_id: str, todo: TodoBase, db: db_dependency):
+async def update_todo(todo_id: str, todo: TodoBase, db: db_dependency, user: User = Depends(get_current_user)):
     try:
         old_todo = db.query(Todo).filter(Todo.id == todo_id).first()
         if old_todo:
@@ -135,9 +147,9 @@ async def update_todo(todo_id: str, todo: TodoBase, db: db_dependency):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 @app.delete("/todo/delete/{todo_id}")
-async def delete_todo(todo_id: str, db: db_dependency):
+async def delete_todo(todo_id: str, db: db_dependency, user: User = Depends(get_current_user)):
     try:
-        db.query(Todo).filter(Todo.id == todo_id).delete()
+        db.query(Todo).filter(Todo.id == todo_id, Todo.user_id == user.id).delete()
         db.commit()
         return {"message":"Todo deleted successfully."}
     except Exception as e:

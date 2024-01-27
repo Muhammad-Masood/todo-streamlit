@@ -20,13 +20,13 @@ def delete_todo(todo_id: str):
     return response.json()
 
 def update_todo(todo_id: str, title: str, description: str, is_done: bool):
-    headers={"Authorization": f"Bearer {st.session_state["session"]}"}
+    headers={"Authorization": "Bearer {}".format({st.session_state["session"]})}
     updated_todo_data = {"title": title, "description": description, "isDone": is_done}
     response = requests.patch(f"{API_BASE_URL}/todo/update/{todo_id}", headers=headers, json=updated_todo_data)
     return response.json()
 
 st.title("Your Todos")
-if "isUpdateFormOpen" in st.session_state is None:
+if "isUpdateFormOpen" not in st.session_state:
     st.session_state["isUpdateFormOpen"] = False
 
 # User's Todos Section

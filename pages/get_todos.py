@@ -10,12 +10,12 @@ API_BASE_URL = os.environ.get("API_BASE_URL")
 
 # Function to get user's todos
 def get_todos():
-    headers={"Authorization": f"Bearer {st.session_state["session"]}"}
+    headers={"Authorization": "Bearer {}".format({st.session_state["session"]})}
     response = requests.get(f"{API_BASE_URL}/todos/get", headers=headers)
     return response.json()
 
 def delete_todo(todo_id: str):
-    headers={"Authorization": f"Bearer {st.session_state["session"]}"}
+    headers={"Authorization": "Bearer {}".format({st.session_state["session"]})}
     response = requests.delete(f"{API_BASE_URL}/todo/delete/{todo_id}", headers=headers)
     return response.json()
 

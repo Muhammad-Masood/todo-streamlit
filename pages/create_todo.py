@@ -9,7 +9,7 @@ load_dotenv()
 API_BASE_URL = os.environ.get("API_BASE_URL") 
 
 def create_todo(title, description, is_done):
-    headers={"Authorization": f"Bearer {st.session_state["session"]}"}
+    headers={"Authorization": "Bearer {}".format({st.session_state["session"]})}
     todo_data = {"title": title, "description": description, "isDone": is_done}
     response = requests.post(f"{API_BASE_URL}/todo/create", json=todo_data, headers=headers)
     return response.json()

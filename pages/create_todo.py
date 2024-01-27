@@ -1,8 +1,12 @@
 import streamlit as st
 import requests
 from requests.models import Response
-from App import API_BASE_URL
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+
+API_BASE_URL = os.environ.get("API_BASE_URL") 
 
 def create_todo(title, description, is_done):
     headers={"Authorization": f"Bearer {st.session_state["session"]}"}

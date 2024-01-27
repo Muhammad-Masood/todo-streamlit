@@ -8,7 +8,6 @@ load_dotenv()
 
 API_BASE_URL = os.environ.get("API_BASE_URL") 
 
-
 # st.set_page_config(
 #     page_title="LogIn",
 #     page_icon=":rocket:",
@@ -17,7 +16,7 @@ API_BASE_URL = os.environ.get("API_BASE_URL")
 # Function to handle user login
 def login(email, password):
     user_data = {"email": email, "password": password}
-    print(API_BASE_URL)
+    st.write("base_url: ",API_BASE_URL)
     response = requests.post(f"{API_BASE_URL}/user/login", json=user_data)
     return response.json()
 
@@ -31,5 +30,5 @@ if st.button("Login"):
         st.session_state["session"] = login_result.get("session", "")
         st.success(login_result.get("message", ""))
     except Exception as e:
-        print(str(e))
+        st.write(str(e))
         st.error(str(e))

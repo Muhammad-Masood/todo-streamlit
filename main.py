@@ -122,7 +122,6 @@ async def create_todo(todo: TodoBase, db: db_dependency, user: User = Depends(ge
 async def get_todos(db: db_dependency, user: User = Depends(get_current_user)):
     try:
         todos:list[Todo] = db.query(Todo).filter(Todo.user_id == user.id).all()
-        print(todos)
         if todos:
             return {"todos": [todo for todo in todos]}
         else:
